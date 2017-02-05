@@ -1,16 +1,16 @@
 /** Module dependencies ***********************/
-const minimist = require('minimist');
-const express = require('express');
-const http = require('http');
-const favicon = require('serve-favicon');
-const bodyParser = require('body-parser');
-const path = require('path');
+var minimist = require('minimist');
+var express = require('express');
+var http = require('http');
+var favicon = require('serve-favicon');
+var bodyParser = require('body-parser');
+var path = require('path');
 
 // args
-const args = minimist(process.argv);
-const isTest = !!args.test;
+var args = minimist(process.argv);
+var isTest = !!args.test;
 
-const app = express();
+var app = express();
 
 // all environments
 app.set('port', process.env.PORT || 4000);
@@ -19,7 +19,7 @@ app.set('port', process.env.PORT || 4000);
 // app.set('views', __dirname + '/views');
 // app.set('view engine', 'ejs');
 
-const publicDir = path.join(__dirname, '..', 'build');
+var publicDir = path.join(__dirname, '..', 'build');
 
 app.use(favicon(path.join(publicDir, 'favicon.ico')));
 // app.use(logger('dev'));
@@ -28,8 +28,8 @@ app.use(express.static(publicDir));
 
 //routes
 app.get('/api', function (req, res) {
-    const execSync = require('child_process').execSync;
-    const MAGNET_GPIO = 3;
+    var execSync = require('child_process').execSync;
+    var MAGNET_GPIO = 3;
     let command = `gpioctl get ${MAGNET_GPIO}`;
     if (isTest) {
         command = `echo "${command}\nPin 3 is HIGH"`;
@@ -39,8 +39,8 @@ app.get('/api', function (req, res) {
         isOpened: false,
     };
 
-    const result = execSync(command).toString();
-    const lines = result.split('\n');
+    var result = execSync(command).toString();
+    var lines = result.split('\n');
 
     if (lines && lines[1]) {
         if (lines[1] === `Pin ${MAGNET_GPIO} is HIGH`) {
