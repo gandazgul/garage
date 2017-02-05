@@ -54,7 +54,7 @@ app.get('/api', function (req, res) {
         throw new Error(`Can't read gpio ${MAGNET_GPIO}`);
     }
 
-    res.json(response);
+    res.append('Access-Control-Allow-Origin', 'http://localhost:3000').json(response);
 });
 
 http.createServer(app).listen(app.get('port'), function () {

@@ -1,11 +1,15 @@
 import React from 'react';
 import {connect} from 'react-redux';
-import {GARAGE_DOOR_OPEN, GARAGE_DOOR_CLOSE} from '../reducers/garage';
+import {GARAGE_DOOR_OPEN, GARAGE_DOOR_CLOSE, getInitialState} from '../reducers/garage';
 
 class GarageDoor extends React.Component {
     static propTypes = {
         isOpened: React.PropTypes.bool,
     };
+
+    componentDidMount() {
+        this.props.dispatch(getInitialState());
+    }
 
     garageDoorClick(openOrClose) {
         this.props.dispatch({
@@ -15,6 +19,10 @@ class GarageDoor extends React.Component {
 
     render() {
         const {isOpened} = this.props;
+
+        if (isOpened === null) {
+            return (<div className="spinner"/>);
+        }
 
         if (isOpened) {
             return (
