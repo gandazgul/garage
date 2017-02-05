@@ -30,12 +30,12 @@ app.use(express.static(publicDir));
 app.get('/api', function (req, res) {
     var execSync = require('child_process').execSync;
     var MAGNET_GPIO = 3;
-    let command = `gpioctl get ${MAGNET_GPIO}`;
+    var command = `gpioctl get ${MAGNET_GPIO}`;
     if (isTest) {
         command = `echo "${command}\nPin 3 is HIGH"`;
     }
 
-    let response = {
+    var response = {
         isOpened: false,
     };
 
