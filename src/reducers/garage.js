@@ -2,7 +2,7 @@ export const GARAGE_DOOR_OPEN = 'GARAGE_DOOR_OPEN';
 export const GARAGE_DOOR_CLOSE = 'GARAGE_DOOR_CLOSE';
 
 export const getInitialState = () => (dispatch) => {
-    fetch('http://localhost:4000/api').then(function (response) {
+    fetch('/api').then(function (response) {
         return response.json();
     }).then(function (response) {
         dispatch({

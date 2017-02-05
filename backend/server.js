@@ -5,6 +5,7 @@ var http = require('http');
 var favicon = require('serve-favicon');
 var bodyParser = require('body-parser');
 var path = require('path');
+var execSync = require('child_process').execSync;
 
 // args
 var args = minimist(process.argv);
@@ -18,17 +19,26 @@ app.set('port', process.env.PORT || 4000);
 // app.engine('ejs', require('ejs-locals'));
 // app.set('views', __dirname + '/views');
 // app.set('view engine', 'ejs');
+var publicDir;
 
-var publicDir = path.join(__dirname, '..', 'build');
+if (process.env.NODE_ENV === 'production') {
+    publicDir = path.join(__dirname, 'public');
 
-app.use(favicon(path.join(publicDir, 'favicon.ico')));
+    app.use(favicon(path.join(publicDir, 'favicon.ico')));
+    app.use(express.static(publicDir));
+}
+else {
+    publicDir = path.join(__dirname, '..', 'build', 'public');
+
+    app.use(favicon(path.join(publicDir, 'favicon.ico')));
+    app.use(express.static(publicDir));
+}
+
 // app.use(logger('dev'));
 app.use(bodyParser());
-app.use(express.static(publicDir));
 
 //routes
 app.get('/api', function (req, res) {
-    var execSync = require('child_process').execSync;
     var MAGNET_GPIO = 3;
     var command = `gpioctl get ${MAGNET_GPIO}`;
     if (isTest) {
@@ -54,7 +64,7 @@ app.get('/api', function (req, res) {
         throw new Error(`Can't read gpio ${MAGNET_GPIO}`);
     }
 
-    res.append('Access-Control-Allow-Origin', 'http://localhost:3000').json(response);
+    res.append('Access-Control-Allow-Origin', 'http://localhost,http://1.1.1.9').json(response);
 });
 
 http.createServer(app).listen(app.get('port'), function () {

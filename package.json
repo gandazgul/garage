@@ -33,7 +33,6 @@
     "html-webpack-plugin": "2.24.0",
     "http-proxy-middleware": "0.17.2",
     "jest": "17.0.2",
-    "json-loader": "0.5.4",
     "less": "^2.7.1",
     "less-loader": "^2.2.3",
     "node-sass": "^3.10.0",
@@ -100,5 +99,6 @@
   },
   "eslintConfig": {
     "extends": "react-app"
-  }
+  },
+  "proxy": "http://localhost:4000"
 }
