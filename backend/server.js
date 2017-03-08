@@ -7,24 +7,63 @@ var favicon = require('serve-favicon');
 var bodyParser = require('body-parser');
 var path = require('path');
 var execSync = require('child_process').execSync;
+var passport = require('passport');
+var Strategy = require('passport-google-oauth2').Strategy;
+var session = require('express-session');
 
 // args
 var args = minimist(process.argv);
 var isTest = !!args.test;
 
 var app = express();
-
 app.set('port', process.env.PORT || 4000);
+app.use(logger('dev'));
+app.use(require('cookie-parser')());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(session({
+    secret: 'GIpDh07f7Kf8V42OHlfRisoTFicmfji9rX14Q2QroUx0wUpxCn9MBKH9P2bVfOOHs72mAGEOiSolJAGJZoZGqYatVX2LMr1KmHdI',
+    resave: true,
+    saveUninitialized: true,
+}));
 
 // Auth setup
-var auth = require('http-auth');
-var basic = auth.basic({
-        realm: "Web."
-    }, function (username, password, callback) { // Custom authentication method.
-        callback(username === "user" && password === "password");
-    }
+passport.use(new Strategy({
+        // https://console.developers.google.com/apis/credentials?project=garage-opener-dev
+        clientID: '838426561327-chlsmhjl34vtohulnri1ut73o6gf7iac.apps.googleusercontent.com',//process.env.CLIENT_ID,
+        clientSecret: 'rk3t-9jmfE9hX9xFwXSxrLtp', //process.env.CLIENT_SECRET,
+        callbackURL: 'http://localhost:4000/login/google/return'
+    },
+    function (accessToken, refreshToken, profile, cb) {
+        // In this example, the user's Facebook profile is supplied as the user
+        // record.  In a production-quality application, the Facebook profile should
+        // be associated with a user record in the application's database, which
+        // allows for account linking and authentication with other identity
+        // providers.
+        return cb(null, profile);
+    })
 );
-app.use(auth.connect(basic));
+
+passport.serializeUser(function (user, cb) {
+    cb(null, user);
+});
+
+passport.deserializeUser(function (obj, cb) {
+    cb(null, obj);
+});
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.get('/', require('connect-ensure-login').ensureLoggedIn());
+
+app.get('/login', passport.authenticate('google', {scope: ['profile']}));
+
+app.get('/login/google/return',
+    passport.authenticate('google', {failureRedirect: '/login'}),
+    function (req, res) {
+        res.redirect('/');
+    });
 
 // Serve the FE
 var publicDir;
@@ -41,9 +80,6 @@ else {
     app.use(favicon(path.join(publicDir, 'favicon.ico')));
     app.use(express.static(publicDir));
 }
-
-app.use(logger('dev'));
-app.use(bodyParser.json());
 
 //routes
 app.get('/api', function (req, res) {
