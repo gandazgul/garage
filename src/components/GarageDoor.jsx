@@ -1,6 +1,6 @@
 import React from 'react';
 import {connect} from 'react-redux';
-import {GARAGE_DOOR_OPEN, GARAGE_DOOR_CLOSE, getInitialState} from '../reducers/garage';
+import {getInitialState, openDoor} from '../reducers/garage';
 
 class GarageDoor extends React.Component {
     static propTypes = {
@@ -12,9 +12,7 @@ class GarageDoor extends React.Component {
     }
 
     garageDoorClick(openOrClose) {
-        this.props.dispatch({
-            type: openOrClose === 'open' ? GARAGE_DOOR_OPEN : GARAGE_DOOR_CLOSE,
-        });
+        this.props.dispatch(openDoor(openOrClose));
     }
 
     render() {
