@@ -1,4 +1,4 @@
-/** Module dependencies ***********************/
+/** Module dependencies ************************************************/
 var express = require('express');
 var logger = require('morgan');
 var http = require('http');
@@ -10,9 +10,11 @@ var execSync = require('child_process').execSync;
 var passport = require('passport');
 var Strategy = require('passport-google-oauth2').Strategy;
 var session = require('express-session');
+require('dotenv').config();
 
 var isTest = process.env.NODE_ENV !== 'production';
 
+/** Express Setup ************************************************/
 var app = express();
 app.set('port', process.env.PORT || 4000);
 app.use(logger('dev'));
@@ -20,24 +22,19 @@ app.use(require('cookie-parser')());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(session({
-    secret: 'GIpDh07f7Kf8V42OHlfRisoTFicmfji9rX14Q2QroUx0wUpxCn9MBKH9P2bVfOOHs72mAGEOiSolJAGJZoZGqYatVX2LMr1KmHdI',
+    secret: process.env.COOKIE_SECRET,
     resave: true,
     saveUninitialized: true,
 }));
 
-// Auth setup
+/** Auth setup ************************************************/
 passport.use(new Strategy({
         // https://console.developers.google.com/apis/credentials?project=garage-opener-dev
-        clientID: '838426561327-chlsmhjl34vtohulnri1ut73o6gf7iac.apps.googleusercontent.com',//process.env.CLIENT_ID,
-        clientSecret: 'rk3t-9jmfE9hX9xFwXSxrLtp', //process.env.CLIENT_SECRET,
-        callbackURL: 'http://localhost:4000/login/google/return'
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_SECRET,
+        callbackURL: process.env.GOOGLE_CALLBACK,
     },
     function (accessToken, refreshToken, profile, cb) {
-        // In this example, the user's Facebook profile is supplied as the user
-        // record.  In a production-quality application, the Facebook profile should
-        // be associated with a user record in the application's database, which
-        // allows for account linking and authentication with other identity
-        // providers.
         return cb(null, profile);
     })
 );
@@ -58,7 +55,21 @@ function ensureAuthenticated(req, res, next) {
     res.redirect('/login');
 }
 
-// Serve the FE
+app.get('/login', passport.authenticate('google', {scope: ['profile']}));
+
+app.get('/login/error', function (req, res) {
+    console.log('error');
+    res.send('login error');
+});
+
+app.get('/login/google/return',
+    passport.authenticate('google', {failureRedirect: '/login/error'}),
+    function (req, res) {
+        res.redirect('/');
+    }
+);
+
+/** Serve the FE ************************************************/
 var publicDir;
 
 if (process.env.NODE_ENV === 'production') {
@@ -72,7 +83,18 @@ app.use(favicon(path.join(publicDir, 'favicon.ico')));
 app.use('/static', ensureAuthenticated);
 app.use('/static', express.static(path.join(publicDir, 'static')));
 
-// helpers
+app.get('/:file?', ensureAuthenticated, function (req, res) {
+    var filePath = path.join(publicDir, req.params.file || 'index.html');
+
+    if (fs.statSync(filePath)) {
+        res.sendFile(filePath);
+    }
+    else {
+        res.status(404).send();
+    }
+});
+
+/** Helpers ************************************************/
 // initialize relay chip
 if (!isTest) {
     var result = execSync('relay-exp -i').toString();
@@ -82,6 +104,11 @@ if (!isTest) {
     }
 }
 
+/**
+ * Checks the current state of the door
+ *
+ * @returns {boolean} true for opened, false for closed
+ */
 function checkDoorIsOpened() {
     var MAGNET_GPIO = 3;
     var command = `gpioctl get ${MAGNET_GPIO}`;
@@ -105,7 +132,7 @@ function checkDoorIsOpened() {
     }
 }
 
-// setup socket.io
+/** Setup socket.io ************************************************/
 var server = http.createServer(app);
 var io = require('socket.io').listen(server);
 io.sockets.on('connection', function (socket) {
@@ -156,33 +183,7 @@ io.sockets.on('connection', function (socket) {
     });
 });
 
-
-// routes
-app.get('/login', passport.authenticate('google', {scope: ['profile']}));
-
-app.get('/login/error', function (req, res) {
-    console.log('error');
-    res.send('login error');
-});
-
-app.get('/login/google/return',
-    passport.authenticate('google', {failureRedirect: '/login/error'}),
-    function (req, res) {
-        res.redirect('/');
-    }
-);
-
-app.get('/:file?', ensureAuthenticated, function (req, res) {
-    var filePath = path.join(publicDir, req.params.file || 'index.html');
-
-    if (fs.statSync(filePath)) {
-        res.sendFile(filePath);
-    }
-    else {
-        res.status(404).send();
-    }
-});
-
+/** Finally start listening ************************************************/
 server.listen(app.get('port'), function () {
     console.log('Express server listening on port ' + app.get('port'));
 });
