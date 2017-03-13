@@ -1,46 +1,65 @@
 import React from 'react';
-import {connect} from 'react-redux';
-import {getInitialState, openDoor} from '../reducers/garage';
+import {connect as ioConnect} from 'socket.io-client';
 
 class GarageDoor extends React.Component {
-    static propTypes = {
-        isOpened: React.PropTypes.bool,
-    };
+    constructor(props) {
+        super(props);
+
+        this.state = {
+            error: null,
+            isOpened: null,
+            loading: true,
+        };
+    }
 
     componentDidMount() {
-        this.props.dispatch(getInitialState());
+        this.socket = ioConnect(window.location.origin);
+
+        this.socket.on('garage_error', (data) => {
+            this.setState({
+                error: data.message,
+            });
+        });
+
+        this.socket.on('door_state', (data) => {
+            this.setState({
+                isOpened: data.isOpened,
+                loading: false,
+            });
+        });
     }
 
     garageDoorClick(openOrClose) {
-        this.props.dispatch(openDoor(openOrClose));
+        this.socket.emit('trigger_door', {expectedState: openOrClose});
+        this.setState({
+            loading: true,
+        });
     }
 
     render() {
-        const {isOpened} = this.props;
+        const {isOpened, error, loading} = this.state;
 
-        if (isOpened === null) {
-            return (<div className="spinner"/>);
+        if (error !== null) {
+            return <p className="error-message">Error: {error}</p>
         }
 
+        let src;
         if (isOpened) {
-            return (
-                <img src="/assets/garage-opened.png" alt="Garage door opened"
-                     onClick={this.garageDoorClick.bind(this, 'close')}
-                />
-            );
+            src = "/static/garage-opened.png";
         }
         else {
-            return (
-                <img src="/assets/garage-closed.png" alt="Garage door closed"
-                     onClick={this.garageDoorClick.bind(this, 'open')}
-                />
-            );
+            src = "/static/garage-closed.png";
         }
+
+        return (
+            <div className="garage-door">
+                {loading ? <div className="spinner" /> : null}
+                <img src={src} alt={`Garage door ${isOpened ? 'opened' : 'closed'}`}
+                     onClick={this.garageDoorClick.bind(this, isOpened ? 'close' : 'open')}
+                />
+            </div>
+        );
     }
 }
 
-const mapStateToProps = (state) => ({
-    isOpened: state.garageDoor.isOpened,
-});
-
-export default connect(mapStateToProps)(GarageDoor);
+export default GarageDoor;
