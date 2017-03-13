@@ -1,6 +1,8 @@
 import React from 'react';
 import {connect as ioConnect} from 'socket.io-client';
 
+import './GarageDoor.less';
+
 class GarageDoor extends React.Component {
     constructor(props) {
         super(props);

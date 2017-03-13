@@ -1,9 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import App from './App';
+import GarageDoor from './components/GarageDoor';
 import './index.less';
 
 ReactDOM.render(
-    <App />,
+    <GarageDoor />,
     document.getElementById('root')
 );
