@@ -10,7 +10,7 @@ var execSync = require('child_process').execSync;
 var passport = require('passport');
 var Strategy = require('passport-google-oauth2').Strategy;
 var session = require('express-session');
-require('dotenv').config();
+require('dotenv').config({path: `${__dirname}/.env`});
 
 var isTest = process.env.NODE_ENV !== 'production';
 
@@ -51,7 +51,7 @@ function ensureAuthenticated(req, res, next) {
     if (req.isAuthenticated()) {
         return next();
     }
-    console.log('ensure');
+
     res.redirect('/login');
 }
 
@@ -62,37 +62,52 @@ app.get('/login/error', function (req, res) {
     res.send('login error');
 });
 
-app.get('/login/google/return',
-    passport.authenticate('google', {failureRedirect: '/login/error'}),
-    function (req, res) {
+app.get('/login/google/return', function (req, res, next) {
+    var success = function () {
         res.redirect('/');
-    }
-);
+    };
 
-/** Serve the FE ************************************************/
-var publicDir;
+    var failure = function (error) {
+        console.log(error);
+        res.send(500, "Internal server error");
+    };
 
-if (process.env.NODE_ENV === 'production') {
-    publicDir = path.join(__dirname, 'public');
-}
-else {
-    publicDir = path.join(__dirname, '..', 'build', 'public');
-}
+    // call authenticate manually with a custom callbackto check that the users are allowed
+    (passport.authenticate('google', function (err, user) {
+        if (err) {
+            failure(err);
+        }
+        else if (!user) {
+            failure("Invalid login data");
+        }
+        else {
+            var userIDs = process.env.GOOGLE_USER_IDS.split(',');
 
-app.use(favicon(path.join(publicDir, 'favicon.ico')));
-app.use('/static', ensureAuthenticated);
-app.use('/static', express.static(path.join(publicDir, 'static')));
-
-app.get('/:file?', ensureAuthenticated, function (req, res) {
-    var filePath = path.join(publicDir, req.params.file || 'index.html');
-
-    if (fs.statSync(filePath)) {
-        res.sendFile(filePath);
-    }
-    else {
-        res.status(404).send();
-    }
+            if (userIDs.indexOf(user.id) === -1) {
+                failure("User not allowed");
+            }
+            else {
+                // req.login is added by the passport.initialize()
+                // middleware to manage login state. We need
+                // to call it directly, as we're overriding
+                // the default passport behavior.
+                req.login(user, function (err) {
+                    if (err) {
+                        failure(err);
+                    }
+                    success();
+                });
+            }
+        }
+    }))(req, res, next);
 });
+
+// app.get('/login/google/return',
+//     passport.authenticate('google', {failureRedirect: '/login/error'}),
+//     function (req, res) {
+//         res.redirect('/');
+//     }
+// );
 
 /** Helpers ************************************************/
 // initialize relay chip
@@ -132,6 +147,59 @@ function checkDoorIsOpened() {
     }
 }
 
+var TemplateEngine = function (html, options) {
+    var re = /<%([^%>]+)?%>/g, reExp = /(^( )?(if|for|else|switch|case|break|{|}))(.*)?/g, code = 'var r=[];\n',
+        cursor = 0, match;
+    var add = function (line, js) {
+        js ? (code += line.match(reExp) ? line + '\n' : 'r.push(' + line + ');\n') :
+            (code += line != '' ? 'r.push("' + line.replace(/"/g, '\\"') + '");\n' : '');
+        return add;
+    }
+    while (match = re.exec(html)) {
+        add(html.slice(cursor, match.index))(match[1], true);
+        cursor = match.index + match[0].length;
+    }
+    add(html.substr(cursor, html.length - cursor));
+    code += 'return r.join("");';
+    return new Function(code.replace(/[\r\t\n]/g, '')).apply(options);
+};
+
+/** Serve the FE ************************************************/
+var publicDir;
+
+if (process.env.NODE_ENV === 'production') {
+    publicDir = path.join(__dirname, 'public');
+}
+else {
+    publicDir = path.join(__dirname, '..', 'build', 'public');
+}
+
+app.use(favicon(path.join(publicDir, 'static', 'favicon.ico')));
+app.use('/static', ensureAuthenticated);
+app.use('/static', express.static(path.join(publicDir, 'static')));
+
+app.get('/manifest.json', function (req, res) {
+    var filePath = path.join(publicDir, 'manifest.json');
+
+    if (fs.statSync(filePath)) {
+        res.sendFile(filePath);
+    }
+    else {
+        res.status(404).send();
+    }
+});
+
+app.get('/:file?', ensureAuthenticated, function (req, res) {
+    var filePath = path.join(publicDir, req.params.file || 'index.html');
+
+    if (fs.statSync(filePath)) {
+        res.sendFile(filePath);
+    }
+    else {
+        res.status(404).send();
+    }
+});
+
 /** Setup socket.io ************************************************/
 var server = http.createServer(app);
 var io = require('socket.io').listen(server);
@@ -151,12 +219,12 @@ io.sockets.on('connection', function (socket) {
         console.log("trigger_door");
 
         // trigger the door
-        var RELAY_ID = 0;
+        var RELAY_ID = 1;
         var openCommand = `relay-exp ${RELAY_ID} 1`;
         var closeCommand = `relay-exp ${RELAY_ID} 0`;
         if (isTest) {
-            openCommand = `echo "> Setting RELAY0 to ON"`;
-            closeCommand = `echo "> Setting RELAY0 to OFF"`;
+            openCommand = `echo "> Setting RELAY1 to ON"`;
+            closeCommand = `echo "> Setting RELAY1 to OFF"`;
         }
 
         var openResult = execSync(openCommand).toString();
