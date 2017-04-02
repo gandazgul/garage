@@ -55,7 +55,13 @@ function ensureAuthenticated(req, res, next) {
     res.redirect('/login');
 }
 
-app.get('/login', passport.authenticate('google', {scope: ['profile']}));
+app.get('/login', function (req, res, next) {
+    if (!req.user) { // Not already logged in, probably okay to try to hit the oauth provider
+        return next();
+    }
+
+    res.redirect('/'); // Already logged in, send them where I want them after the callback anyway.
+}, passport.authenticate('google', {scope: ['profile']}));
 
 app.get('/login/error', function (req, res) {
     console.log('error');
