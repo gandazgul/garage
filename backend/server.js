@@ -1,5 +1,6 @@
 /** Module dependencies ************************************************/
 var express = require('express');
+var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var http = require('http');
 var favicon = require('serve-favicon');
@@ -10,22 +11,31 @@ var execSync = require('child_process').execSync;
 var passport = require('passport');
 var Strategy = require('passport-google-oauth2').Strategy;
 var session = require('express-session');
-require('dotenv').config({path: `${__dirname}/.env`});
+var sessionStore = new session.MemoryStore();
 
 var isTest = process.env.NODE_ENV !== 'production';
 
+if (isTest) {
+    require('dotenv').config({path: `${__dirname}/../.env`});
+}
+else {
+    require('dotenv').config({path: `${__dirname}/.env`});
+}
+
 /** Express Setup ************************************************/
-var app = express();
-app.set('port', process.env.PORT || 4000);
-app.use(logger('dev'));
-app.use(require('cookie-parser')());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({extended: true}));
-app.use(session({
+var sessionMiddleware = session({
     secret: process.env.COOKIE_SECRET,
     resave: true,
     saveUninitialized: true,
-}));
+    store: sessionStore,
+});
+var app = express();
+app.set('port', process.env.PORT || 4000)
+    .use(logger('dev'))
+    .use(cookieParser())
+    .use(bodyParser.json())
+    .use(bodyParser.urlencoded({extended: true}))
+    .use(sessionMiddleware);
 
 /** Auth setup ************************************************/
 passport.use(new Strategy({
@@ -75,7 +85,7 @@ app.get('/login/google/return', function (req, res, next) {
 
     var failure = function (error) {
         console.log(error);
-        res.send(500, "Internal server error");
+        res.send(500, error);
     };
 
     // call authenticate manually with a custom callbackto check that the users are allowed
@@ -107,13 +117,6 @@ app.get('/login/google/return', function (req, res, next) {
         }
     }))(req, res, next);
 });
-
-// app.get('/login/google/return',
-//     passport.authenticate('google', {failureRedirect: '/login/error'}),
-//     function (req, res) {
-//         res.redirect('/');
-//     }
-// );
 
 /** Helpers ************************************************/
 // initialize relay chip
@@ -184,8 +187,11 @@ app.use(favicon(path.join(publicDir, 'static', 'favicon.ico')));
 app.use('/static', ensureAuthenticated);
 app.use('/static', express.static(path.join(publicDir, 'static')));
 
-app.get('/manifest.json', function (req, res) {
-    var filePath = path.join(publicDir, 'manifest.json');
+app.get([
+    '/manifest.json',
+    '/google4abbc01915c5e65d.html'
+], function (req, res) {
+    var filePath = path.join(publicDir, req.path);
 
     if (fs.statSync(filePath)) {
         res.sendFile(filePath);
@@ -208,54 +214,81 @@ app.get('/:file?', ensureAuthenticated, function (req, res) {
 
 /** Setup socket.io ************************************************/
 var server = http.createServer(app);
-var io = require('socket.io').listen(server);
-io.sockets.on('connection', function (socket) {
-    //check every second what the door state is
-    var lastState = null;
-    var timer = setInterval(function () {
-        var isOpened = checkDoorIsOpened();
+var io = require('socket.io')(server, {serveClient: false});
+var passportSocketIo = require("passport.socketio");
 
-        if (lastState !== isOpened) {
-            lastState = isOpened;
-            socket.emit('door_state', {isOpened});
-        }
-    }, 1000);
+function onAuthorizeSuccess(data, accept){
+    console.log('successful connection to socket.io');
 
-    socket.on('trigger_door', function (data) {
-        console.log("trigger_door");
+    accept();
+}
 
-        // trigger the door
-        var RELAY_ID = 1;
-        var openCommand = `relay-exp ${RELAY_ID} 1`;
-        var closeCommand = `relay-exp ${RELAY_ID} 0`;
-        if (isTest) {
-            openCommand = `echo "> Setting RELAY1 to ON"`;
-            closeCommand = `echo "> Setting RELAY1 to OFF"`;
-        }
+function onAuthorizeFail(data, message, error, accept){
+    if(error)
+        throw new Error(message);
+    console.log('failed connection to socket.io:', message);
 
-        var openResult = execSync(openCommand).toString();
-        setTimeout(() => {
-            var closeResult = execSync(closeCommand).toString();
-            var openLines = openResult.split('\n');
-            var closeLines = closeResult.split('\n');
+    if(error)
+        accept(new Error(message));
+    // this error will be sent to the user as a special error-package
+    // see: http://socket.io/docs/client-api/#socket > error-object
+}
 
-            if (openLines && openLines[0] && closeLines && closeLines[0]) {
-                if (
-                    (openLines[0] === `> Setting RELAY${RELAY_ID} to ON`) &&
-                    (closeLines[0] === `> Setting RELAY${RELAY_ID} to OFF`)
-                ) {
+io.use(passportSocketIo.authorize({
+    cookieParser: cookieParser,       // the same middleware you registrer in express
+    key:          'connect.sid',       // the name of the cookie where express/connect stores its session_id
+    secret:       process.env.COOKIE_SECRET,    // the session_secret to parse the cookie
+    store:        sessionStore,        // we NEED to use a sessionstore. no memorystore please
+    success:      onAuthorizeSuccess,  // *optional* callback on success - read more below
+    fail:         onAuthorizeFail,     // *optional* callback on fail/error - read more below
+}))
+    .on('connection', function (socket) {
+        //check every second what the door state is
+        var lastState = null;
+        var timer = setInterval(function () {
+            var isOpened = checkDoorIsOpened();
 
+            if (lastState !== isOpened) {
+                lastState = isOpened;
+                socket.emit('door_state', {isOpened});
+            }
+        }, 1000);
+
+        socket.on('trigger_door', function (data) {
+            console.log("trigger_door");
+
+            // trigger the door
+            var RELAY_ID = 1;
+            var openCommand = `relay-exp ${RELAY_ID} 1`;
+            var closeCommand = `relay-exp ${RELAY_ID} 0`;
+            if (isTest) {
+                openCommand = `echo "> Setting RELAY1 to ON"`;
+                closeCommand = `echo "> Setting RELAY1 to OFF"`;
+            }
+
+            var openResult = execSync(openCommand).toString();
+            setTimeout(() => {
+                var closeResult = execSync(closeCommand).toString();
+                var openLines = openResult.split('\n');
+                var closeLines = closeResult.split('\n');
+
+                if (openLines && openLines[0] && closeLines && closeLines[0]) {
+                    if (
+                        (openLines[0] === `> Setting RELAY${RELAY_ID} to ON`) &&
+                        (closeLines[0] === `> Setting RELAY${RELAY_ID} to OFF`)
+                    ) {
+
+                    }
+                    else {
+                        socket.emit('garage_error', {message: `Unexpected output from command: ${openCommand} && ${closeCommand} => ${openLines[0]} && ${closeLines[0]}`});
+                    }
                 }
                 else {
-                    socket.emit('garage_error', {message: `Unexpected output from command: ${openCommand} && ${closeCommand} => ${openLines[0]} && ${closeLines[0]}`});
+                    socket.emit('garage_error', {message: `Can't read output from command: ${openCommand} && ${closeCommand}`});
                 }
-            }
-            else {
-                socket.emit('garage_error', {message: `Can't read output from command: ${openCommand} && ${closeCommand}`});
-            }
-        }, 500);
+            }, 500);
+        });
     });
-});
 
 /** Finally start listening ************************************************/
 server.listen(app.get('port'), function () {
