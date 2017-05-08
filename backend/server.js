@@ -9,7 +9,7 @@ var path = require('path');
 var fs = require('fs');
 var execSync = require('child_process').execSync;
 var passport = require('passport');
-var Strategy = require('passport-google-oauth2').Strategy;
+var Strategy = require('passport-facebook').Strategy;
 var session = require('express-session');
 var sessionStore = new session.MemoryStore();
 
@@ -39,15 +39,14 @@ app.set('port', process.env.PORT || 4000)
 
 /** Auth setup ************************************************/
 passport.use(new Strategy({
-        // https://console.developers.google.com/apis/credentials?project=garage-opener-dev
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_SECRET,
-        callbackURL: process.env.GOOGLE_CALLBACK,
+        clientID: process.env.FACEBOOK_APP_ID,
+        clientSecret: process.env.FACEBOOK_APP_SECRET,
+        callbackURL: process.env.FACEBOOK_CALLBACK,
     },
     function (accessToken, refreshToken, profile, cb) {
         return cb(null, profile);
-    })
-);
+    }
+));
 passport.serializeUser(function (user, cb) {
     cb(null, user);
 });
@@ -71,14 +70,14 @@ app.get('/login', function (req, res, next) {
     }
 
     res.redirect('/'); // Already logged in, send them where I want them after the callback anyway.
-}, passport.authenticate('google', {scope: ['profile']}));
+}, passport.authenticate('facebook', {scope: 'public_profile'}));
 
 app.get('/login/error', function (req, res) {
     console.log('error');
     res.send('login error');
 });
 
-app.get('/login/google/return', function (req, res, next) {
+app.get('/login/facebook/callback', function (req, res, next) {
     var success = function () {
         res.redirect('/');
     };
@@ -89,7 +88,7 @@ app.get('/login/google/return', function (req, res, next) {
     };
 
     // call authenticate manually with a custom callbackto check that the users are allowed
-    (passport.authenticate('google', function (err, user) {
+    (passport.authenticate('facebook', function (err, user) {
         if (err) {
             failure(err);
         }
@@ -97,7 +96,7 @@ app.get('/login/google/return', function (req, res, next) {
             failure("Invalid login data");
         }
         else {
-            var userIDs = process.env.GOOGLE_USER_IDS.split(',');
+            var userIDs = process.env.FACEBOOK_USER_IDS.split(',');
 
             if (userIDs.indexOf(user.id) === -1) {
                 failure("User not allowed");
@@ -156,23 +155,6 @@ function checkDoorIsOpened() {
     }
 }
 
-var TemplateEngine = function (html, options) {
-    var re = /<%([^%>]+)?%>/g, reExp = /(^( )?(if|for|else|switch|case|break|{|}))(.*)?/g, code = 'var r=[];\n',
-        cursor = 0, match;
-    var add = function (line, js) {
-        js ? (code += line.match(reExp) ? line + '\n' : 'r.push(' + line + ');\n') :
-            (code += line != '' ? 'r.push("' + line.replace(/"/g, '\\"') + '");\n' : '');
-        return add;
-    }
-    while (match = re.exec(html)) {
-        add(html.slice(cursor, match.index))(match[1], true);
-        cursor = match.index + match[0].length;
-    }
-    add(html.substr(cursor, html.length - cursor));
-    code += 'return r.join("");';
-    return new Function(code.replace(/[\r\t\n]/g, '')).apply(options);
-};
-
 /** Serve the FE ************************************************/
 var publicDir;
 
@@ -219,6 +201,8 @@ var passportSocketIo = require("passport.socketio");
 
 function onAuthorizeSuccess(data, accept){
     console.log('successful connection to socket.io');
+
+    // console.log(data.user);
 
     accept();
 }

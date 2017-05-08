@@ -48,7 +48,7 @@
     "node-sass": "^3.10.0",
     "object-assign": "4.1.0",
     "passport": "^0.3.2",
-    "passport-google-oauth2": "^0.1.6",
+    "passport-facebook": "^2.1.1",
     "passport.socketio": "^3.7.0",
     "path-exists": "2.1.0",
     "postcss-loader": "1.0.0",
