@@ -3,6 +3,7 @@ var express = require('express');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var http = require('http');
+var https = require('https');
 var favicon = require('serve-favicon');
 var bodyParser = require('body-parser');
 var path = require('path');
@@ -197,82 +198,120 @@ app.get('/:file?', ensureAuthenticated, function (req, res) {
 /** Setup socket.io ************************************************/
 var server = http.createServer(app);
 var io = require('socket.io')(server, {serveClient: false});
-var passportSocketIo = require("passport.socketio");
+// var passportSocketIo = require("passport.socketio");
 
-function onAuthorizeSuccess(data, accept){
-    console.log('successful connection to socket.io');
+// io.use(passportSocketIo.authorize({
+//     cookieParser: cookieParser,       // the same middleware you registrer in express
+//     key:          'connect.sid',       // the name of the cookie where express/connect stores its session_id
+//     secret:       process.env.COOKIE_SECRET,    // the session_secret to parse the cookie
+//     store:        sessionStore,        // we NEED to use a sessionstore. no memorystore please
+//     success:      onAuthorizeSuccess,  // *optional* callback on success - read more below
+//     fail:         onAuthorizeFail,     // *optional* callback on fail/error - read more below
+// }))
 
-    // console.log(data.user);
 
-    accept();
-}
-
-function onAuthorizeFail(data, message, error, accept){
-    if(error)
-        throw new Error(message);
-    console.log('failed connection to socket.io:', message);
-
-    if(error)
-        accept(new Error(message));
-    // this error will be sent to the user as a special error-package
-    // see: http://socket.io/docs/client-api/#socket > error-object
-}
-
-io.use(passportSocketIo.authorize({
-    cookieParser: cookieParser,       // the same middleware you registrer in express
-    key:          'connect.sid',       // the name of the cookie where express/connect stores its session_id
-    secret:       process.env.COOKIE_SECRET,    // the session_secret to parse the cookie
-    store:        sessionStore,        // we NEED to use a sessionstore. no memorystore please
-    success:      onAuthorizeSuccess,  // *optional* callback on success - read more below
-    fail:         onAuthorizeFail,     // *optional* callback on fail/error - read more below
-}))
-    .on('connection', function (socket) {
-        //check every second what the door state is
-        var lastState = null;
-        var timer = setInterval(function () {
-            var isOpened = checkDoorIsOpened();
-
-            if (lastState !== isOpened) {
-                lastState = isOpened;
-                socket.emit('door_state', {isOpened});
-            }
-        }, 1000);
-
-        socket.on('trigger_door', function (data) {
-            console.log("trigger_door");
-
-            // trigger the door
-            var RELAY_ID = 1;
-            var openCommand = `relay-exp ${RELAY_ID} 1`;
-            var closeCommand = `relay-exp ${RELAY_ID} 0`;
-            if (isTest) {
-                openCommand = `echo "> Setting RELAY1 to ON"`;
-                closeCommand = `echo "> Setting RELAY1 to OFF"`;
-            }
-
-            var openResult = execSync(openCommand).toString();
-            setTimeout(() => {
-                var closeResult = execSync(closeCommand).toString();
-                var openLines = openResult.split('\n');
-                var closeLines = closeResult.split('\n');
-
-                if (openLines && openLines[0] && closeLines && closeLines[0]) {
-                    if (
-                        (openLines[0] === `> Setting RELAY${RELAY_ID} to ON`) &&
-                        (closeLines[0] === `> Setting RELAY${RELAY_ID} to OFF`)
-                    ) {
-
-                    }
-                    else {
-                        socket.emit('garage_error', {message: `Unexpected output from command: ${openCommand} && ${closeCommand} => ${openLines[0]} && ${closeLines[0]}`});
-                    }
-                }
-                else {
-                    socket.emit('garage_error', {message: `Can't read output from command: ${openCommand} && ${closeCommand}`});
-                }
-            }, 500);
+https.get(
+    `https://graph.facebook.com/oauth/access_token?client_id=${process.env.FACEBOOK_APP_ID}&client_secret=${process.env.FACEBOOK_APP_SECRET}&grant_type=client_credentials`,
+    (res) => {
+        res.setEncoding('utf8');
+        let rawData = '';
+        res.on('data', (chunk) => {
+            rawData += chunk;
         });
-    });
+        res.on('end', () => {
+            try {
+                const parsedData = JSON.parse(rawData);
+                const accessToken = parsedData.access_token;
+
+                io.on('connection', function (socket) {
+                    const loginParams = socket.request._query;
+
+                    https.get(
+                        `https://graph.facebook.com/debug_token?input_token=${loginParams.token}&access_token=${accessToken}`,
+                        (res) => {
+                            res.setEncoding('utf8');
+                            let rawData = '';
+                            res.on('data', (chunk) => {
+                                rawData += chunk;
+                            });
+                            res.on('end', () => {
+                                try {
+                                    console.log(rawData);
+                                    const parsedData = JSON.parse(rawData).data;
+                                    const userIDs = process.env.FACEBOOK_USER_IDS.split(',');
+
+                                    if (
+                                        userIDs.indexOf(loginParams.userID) !== -1 &&
+                                        loginParams.appID === parsedData.app_id &&
+                                        loginParams.userID === parsedData.user_id &&
+                                        parsedData.is_valid === true
+                                    ) {
+                                        console.log('successful connection to socket.io');
+
+                                        //check every second what the door state is
+                                        var lastState = null;
+                                        var timer = setInterval(function () {
+                                            var isOpened = checkDoorIsOpened();
+
+                                            if (lastState !== isOpened) {
+                                                lastState = isOpened;
+                                                socket.emit('door_state', {isOpened});
+                                            }
+                                        }, 1000);
+
+                                        socket.on('trigger_door', function (data) {
+                                            console.log("trigger_door");
+
+                                            // trigger the door
+                                            var RELAY_ID = 1;
+                                            var openCommand = `relay-exp ${RELAY_ID} 1`;
+                                            var closeCommand = `relay-exp ${RELAY_ID} 0`;
+                                            if (isTest) {
+                                                openCommand = `echo "> Setting RELAY1 to ON"`;
+                                                closeCommand = `echo "> Setting RELAY1 to OFF"`;
+                                            }
+
+                                            var openResult = execSync(openCommand).toString();
+                                            setTimeout(() => {
+                                                var closeResult = execSync(closeCommand).toString();
+                                                var openLines = openResult.split('\n');
+                                                var closeLines = closeResult.split('\n');
+
+                                                if (openLines && openLines[0] && closeLines && closeLines[0]) {
+                                                    if (
+                                                        (openLines[0] === `> Setting RELAY${RELAY_ID} to ON`) &&
+                                                        (closeLines[0] === `> Setting RELAY${RELAY_ID} to OFF`)
+                                                    ) {
+
+                                                    }
+                                                    else {
+                                                        socket.emit('garage_error', {message: `Unexpected output from command: ${openCommand} && ${closeCommand} => ${openLines[0]} && ${closeLines[0]}`});
+                                                    }
+                                                }
+                                                else {
+                                                    socket.emit('garage_error', {message: `Can't read output from command: ${openCommand} && ${closeCommand}`});
+                                                }
+                                            }, 500);
+                                        });
+                                    }
+                                    else {
+                                        console.log('failed connection to socket.io: User not allowed');
+                                    }
+                                }
+                                catch (e) {
+                                    console.error(e.message);
+                                }
+                            });
+                        }
+                    );
+                });
+
+            } catch (e) {
+                console.error(e.message);
+            }
+        });
+    }
+);
 
 /** Finally start listening ************************************************/
 server.listen(app.get('port'), function () {
