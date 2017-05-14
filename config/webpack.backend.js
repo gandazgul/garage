@@ -10,7 +10,7 @@ module.exports = {
     },
     output: {
         path: paths.backendBuild,
-        filename: 'backend.js'
+        filename: 'server.js'
     },
     module: {
         loaders: [

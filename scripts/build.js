@@ -10,29 +10,20 @@ require('dotenv').config({silent: true});
 var chalk = require('chalk');
 var fs = require('fs-extra');
 var path = require('path');
-var pathExists = require('path-exists');
+
 var filesize = require('filesize');
 var gzipSize = require('gzip-size').sync;
 var webpack = require('webpack');
-var frontendConfig = require('../config/webpack.config.prod');
 var backendConfig = require('../config/webpack.backend');
 var paths = require('../config/paths');
-var checkRequiredFiles = require('react-dev-utils/checkRequiredFiles');
 var recursive = require('recursive-readdir');
 var stripAnsi = require('strip-ansi');
-
-var useYarn = pathExists.sync(paths.yarnLockFile);
-
-// Warn and crash if required files are missing
-if (!checkRequiredFiles([paths.appHtml, paths.appIndexJs])) {
-    process.exit(1);
-}
 
 // Input: /User/dan/app/build/static/js/main.82be8.js
 // Output: /static/js/main.js
 function removeFileNameHash(fileName) {
     return fileName
-        .replace(paths.appBuild, '')
+        .replace(paths.backendBuild, '')
         .replace(/\/?(.*)(\.\w+)(\.js|\.css)/, (match, p1, p2, p3) => p1 + p3);
 }
 
@@ -55,7 +46,7 @@ function getDifferenceLabel(currentSize, previousSize) {
 
 // First, read the current file sizes in build directory.
 // This lets us display how much they changed later.
-recursive(paths.appBuild, (err, fileNames) => {
+recursive(paths.backendBuild, (err, fileNames) => {
     var previousSizeMap = (fileNames || [])
         .filter(fileName => /\.(js|css)$/.test(fileName))
         .reduce((memo, fileName) => {
@@ -67,13 +58,10 @@ recursive(paths.appBuild, (err, fileNames) => {
 
     // Remove all content but keep the directory so that
     // if you're in it, you don't end up in Trash
-    fs.emptyDirSync(paths.appBuild);
+    fs.emptyDirSync(paths.backendBuild);
 
     // Start the webpack build
     build(previousSizeMap);
-
-    // Merge with the public folder
-    copyPublicFolder();
 });
 
 // Print a detailed summary of build files.
@@ -143,86 +131,10 @@ function webpackRunCallback(previousSizeMap, buildPath, err, stats) {
     console.log();
     printFileSizes(buildPath, stats, previousSizeMap);
     console.log();
-
-    var openCommand = process.platform === 'win32' ? 'start' : 'open';
-    var appPackage = require(paths.appPackageJson);
-    var homepagePath = appPackage.homepage;
-    var publicPath = frontendConfig.output.publicPath;
-    if (homepagePath && homepagePath.indexOf('.github.io/') !== -1) {
-        // "homepage": "http://user.github.io/project"
-        console.log('The project was built assuming it is hosted at ' + chalk.green(publicPath) + '.');
-        console.log('You can control this with the ' + chalk.green('homepage') + ' field in your ' + chalk.cyan('package.json') + '.');
-        console.log();
-        console.log('The ' + chalk.cyan('build') + ' folder is ready to be deployed.');
-        console.log('To publish it at ' + chalk.green(homepagePath) + ', run:');
-        // If script deploy has been added to package.json, skip the instructions
-        if (typeof appPackage.scripts.deploy === 'undefined') {
-            console.log();
-            if (useYarn) {
-                console.log('  ' + chalk.cyan('yarn') + ' add --dev gh-pages');
-            } else {
-                console.log('  ' + chalk.cyan('npm') + ' install --save-dev gh-pages');
-            }
-            console.log();
-            console.log('Add the following script in your ' + chalk.cyan('package.json') + '.');
-            console.log();
-            console.log('    ' + chalk.dim('// ...'));
-            console.log('    ' + chalk.yellow('"scripts"') + ': {');
-            console.log('      ' + chalk.dim('// ...'));
-            console.log('      ' + chalk.yellow('"deploy"') + ': ' + chalk.yellow('"npm run build&&gh-pages -d build"'));
-            console.log('    }');
-            console.log();
-            console.log('Then run:');
-        }
-        console.log();
-        console.log('  ' + chalk.cyan(useYarn ? 'yarn' : 'npm') + ' run deploy');
-        console.log();
-    } else if (publicPath !== '/') {
-        // "homepage": "http://mywebsite.com/project"
-        console.log('The project was built assuming it is hosted at ' + chalk.green(publicPath) + '.');
-        console.log('You can control this with the ' + chalk.green('homepage') + ' field in your ' + chalk.cyan('package.json') + '.');
-        console.log();
-        console.log('The ' + chalk.cyan('build') + ' folder is ready to be deployed.');
-        console.log();
-    } else {
-        // no homepage or "homepage": "http://mywebsite.com"
-        console.log('The project was built assuming it is hosted at the server root.');
-        if (homepagePath) {
-            // "homepage": "http://mywebsite.com"
-            console.log('You can control this with the ' + chalk.green('homepage') + ' field in your ' + chalk.cyan('package.json') + '.');
-            console.log();
-        } else {
-            // no homepage
-            console.log('To override this, specify the ' + chalk.green('homepage') + ' in your ' + chalk.cyan('package.json') + '.');
-            console.log('For example, add this to build it for GitHub Pages:')
-            console.log();
-            console.log('  ' + chalk.green('"homepage"') + chalk.cyan(': ') + chalk.green('"http://myname.github.io/myapp"') + chalk.cyan(','));
-            console.log();
-        }
-        console.log('The ' + chalk.cyan('build') + ' folder is ready to be deployed.');
-        console.log('You may also serve it locally with a static server:')
-        console.log();
-        if (useYarn) {
-            console.log('  ' + chalk.cyan('yarn') + ' global add pushstate-server');
-        } else {
-            console.log('  ' + chalk.cyan('npm') + ' install -g pushstate-server');
-        }
-        console.log('  ' + chalk.cyan('pushstate-server') + ' build');
-        console.log('  ' + chalk.cyan(openCommand) + ' http://localhost:9000');
-        console.log();
-    }
 }
 
 // Create the production build and print the deployment instructions.
 function build(previousSizeMap) {
     console.log('Creating an optimized production build...');
-    webpack(frontendConfig).run(webpackRunCallback.bind(this, previousSizeMap, frontendConfig.output.path));
     webpack(backendConfig).run(webpackRunCallback.bind(this, previousSizeMap, backendConfig.output.path));
-}
-
-function copyPublicFolder() {
-    fs.copySync(paths.appPublic, paths.appBuild, {
-        dereference: true,
-        filter: file => file !== paths.appHtml
-    });
 }

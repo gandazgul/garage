@@ -24,23 +24,18 @@ function resolveApp(relativePath) {
 // https://github.com/facebookincubator/create-react-app/issues/1023#issuecomment-265344421
 
 var nodePaths = (process.env.NODE_PATH || '')
-    .split(process.platform === 'win32' ? ';' : ':')
+    .split(':')
     .filter(Boolean)
     .filter(folder => !path.isAbsolute(folder))
     .map(resolveApp);
 
 // frontendConfig after eject: we're in ./frontendConfig/
 module.exports = {
-    appBuild: resolveApp('build/public'),
     backendBuild: resolveApp('build'),
-    appPublic: resolveApp('public'),
-    appHtml: resolveApp('public/index.html'),
-    appIndexJs: resolveApp('src/index.js'),
-    serverIndexJs: resolveApp('backend/server.js'),
+    serverIndexJs: resolveApp('src/server.js'),
     appPackageJson: resolveApp('package.json'),
     appSrc: resolveApp('src'),
     yarnLockFile: resolveApp('yarn.lock'),
-    testsSetup: resolveApp('src/setupTests.js'),
     appNodeModules: resolveApp('node_modules'),
     ownNodeModules: resolveApp('node_modules'),
     nodePaths: nodePaths
