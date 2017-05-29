@@ -1,31 +1,31 @@
 /** Module dependencies ************************************************/
-var express = require('express');
-var logger = require('morgan');
-var http = require('http');
-var https = require('https');
 var execSync = require('child_process').execSync;
 
-var isTest = process.env.NODE_ENV !== 'production';
-
-if (isTest) {
+if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config({path: `${__dirname}/../.env`});
 }
 else {
     require('dotenv').config({path: `${__dirname}/.env`});
 }
 
-var app = express();
-app.set('port', process.env.PORT || 4000)
-    .use(logger('dev'));
-
 /** Helpers ************************************************/
 // initialize relay chip
-if (!isTest) {
-    var result = execSync('relay-exp -i').toString();
-    var lines = result.split('\n');
-    if (!lines || (lines && lines[0] !== '> Initializing Relay Expansion chip')) {
-        throw new Error('Unrecognized output when initializing relay chip.');
+var isDoorOpened;
+
+if (process.env.NODE_ENV === 'production') {
+    try {
+        var result = execSync('relay-exp -i').toString();
+        var lines = result.split('\n');
+        if (!lines || (lines && lines[0] !== '> Initializing Relay Expansion chip')) {
+            throw new Error('Unrecognized output when initializing relay chip.');
+        }
     }
+    catch (e) {
+        console.error('Couldn\'t initialize relay chip.');
+    }
+}
+else {
+    isDoorOpened = true;
 }
 
 /**
@@ -36,8 +36,8 @@ if (!isTest) {
 function checkDoorIsOpened() {
     var MAGNET_GPIO = 3;
     var command = `gpioctl get ${MAGNET_GPIO}`;
-    if (isTest) {
-        command = `echo "${command}\nPin 3 is ${Math.random() > 0.5 ? 'LOW' : 'HIGH'}"`;
+    if (process.env.NODE_ENV !== 'production') {
+        command = `echo "${command}\nPin 3 is ${isDoorOpened ? 'LOW' : 'HIGH'}"`;
     }
 
     var result = execSync(command).toString();
@@ -56,18 +56,12 @@ function checkDoorIsOpened() {
     }
 }
 
-/** Setup socket.io ************************************************/
-var server = http.createServer(app);
-var io = require('socket.io')(server, {serveClient: false});
-
-function toggleDoor(socket) {
-    console.log("trigger_door");
-
+function toggleDoor(errorHandler) {
     // trigger the door
     var RELAY_ID = 1;
     var openCommand = `relay-exp ${RELAY_ID} 1`;
     var closeCommand = `relay-exp ${RELAY_ID} 0`;
-    if (isTest) {
+    if (process.env.NODE_ENV !== 'production') {
         openCommand = `echo "> Setting RELAY1 to ON"`;
         closeCommand = `echo "> Setting RELAY1 to OFF"`;
     }
@@ -83,98 +77,79 @@ function toggleDoor(socket) {
                 (openLines[0] === `> Setting RELAY${RELAY_ID} to ON`) &&
                 (closeLines[0] === `> Setting RELAY${RELAY_ID} to OFF`)
             ) {
-
+                if (process.env.NODE_ENV !== 'production') {
+                    isDoorOpened = !isDoorOpened;
+                }
             }
             else {
-                socket.emit('garage_error', {message: `Unexpected output from command: ${openCommand} && ${closeCommand} => ${openLines[0]} && ${closeLines[0]}`});
+                errorHandler({message: `Unexpected output from command: ${openCommand} && ${closeCommand} => ${openLines[0]} && ${closeLines[0]}`});
             }
         }
         else {
-            socket.emit('garage_error', {message: `Can't read output from command: ${openCommand} && ${closeCommand}`});
+            errorHandler({message: `Can't read output from command: ${openCommand} && ${closeCommand}`});
         }
     }, 500);
 }
 
-function socketConnected(accessToken, socket) {
-    var loginParams = socket.request._query;
+/** Setup MQTT ************************************************/
+var mqtt = require('mqtt');
+var ignoreNextMessage = true;
+var lastState = null;
 
-    // new connection, check the accesstoken validity
-    https.get(
-        `https://graph.facebook.com/debug_token?input_token=${loginParams.token}&access_token=${accessToken}`,
-        (res) => {
-            res.setEncoding('utf8');
-            var rawData = '';
-            res.on('data', (chunk) => {
-                rawData += chunk;
-            });
-            res.on('end', () => {
-                try {
-                    // Check if the user id is one of the ones allowed
-                    var parsedData = JSON.parse(rawData).data;
-                    var userIDs = process.env.FACEBOOK_USER_IDS.split(',');
+var client = mqtt.connect(`tls://${process.env.MQTT_SERVER}:${process.env.MQTT_PORT}`, {
+    clientId: 'garage_node',
+    username: process.env.MQTT_USERNAME,
+    password: process.env.MQTT_PASSWORD,
+    rejectUnauthorized: false,
+});
 
-                    if (
-                        userIDs.indexOf(loginParams.userID) !== -1 &&
-                        loginParams.appID === parsedData.app_id &&
-                        loginParams.userID === parsedData.user_id &&
-                        parsedData.is_valid === true
-                    ) {
-                        console.log('successful connection to socket.io');
+client.on('connect', function () {
+    console.log('connected');
 
-                        //check every second what the door state is and send it
-                        var lastState = null;
-                        var timer = setInterval(function () {
-                            var isOpened = checkDoorIsOpened();
+    client.subscribe('smartthings/Garage Door/door/state');
+    client.publish('presence/hello', 'garage_node');
+});
 
-                            if (lastState !== isOpened) {
-                                lastState = isOpened;
-                                socket.emit('door_state', {isOpened});
-                            }
-                        }, 1000);
+function connectionClosed() {
+    console.log('\ndisconnected');
 
-                        socket.on('trigger_door', toggleDoor.bind(null, socket));
-                    }
-                    else {
-                        var message = 'Failed connection to socket: User not allowed.';
-                        console.log(message);
-                        socket.emit('garage_error', {message});
-                    }
-                }
-                catch (e) {
-                    console.error(e.message);
-                    socket.emit('garage_error', {message: e.message});
-                }
-            });
-        }
-    );
+    client.publish('presence/bye', 'garage_node');
+
+    setTimeout(function () {
+        client.end();
+        process.exit(0);
+    }, 0);
 }
 
-// get facebook access token
-https.get(
-    `https://graph.facebook.com/oauth/access_token?client_id=${process.env.FACEBOOK_APP_ID}&client_secret=${process.env.FACEBOOK_APP_SECRET}&grant_type=client_credentials`,
-    (res) => {
-        res.setEncoding('utf8');
-        var rawData = '';
+client.on('close', connectionClosed);
+process.on('SIGINT', connectionClosed);
 
-        res.on('data', (chunk) => {
-            rawData += chunk;
-        });
+function errorHandler(err) {
+    client.publish('error', JSON.stringify(err));
+    console.error('Error: ', err);
+}
 
-        res.on('end', () => {
-            try {
-                var parsedData = JSON.parse(rawData);
-                var accessToken = parsedData.access_token;
+client.on('error', errorHandler);
 
-                io.on('connection', socketConnected.bind(null, accessToken));
-
-            } catch (e) {
-                console.error(e.message);
-            }
-        });
+client.on('message', function (topic, message) {
+    if (ignoreNextMessage) {
+        ignoreNextMessage = false;
     }
-);
-
-/** Finally start listening ************************************************/
-server.listen(app.get('port'), function () {
-    console.log('Express server listening on port ' + app.get('port'));
+    else {
+        console.log('Toggling door:', topic, message.toString());
+        toggleDoor(errorHandler);
+    }
 });
+
+//check every second what the door state is and send it
+setInterval(function () {
+    var isOpened = checkDoorIsOpened();
+
+    if (lastState !== isOpened) {
+        lastState = isOpened;
+
+        var stateStr = isOpened ? 'open' : 'close';
+        console.log('Sending state: ' + stateStr);
+        client.publish('smartthings/Garage Door/door/set_state', stateStr);
+    }
+}, 1000);
