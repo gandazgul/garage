@@ -4,4 +4,4 @@ Socket server to open/close garage door.
 
 Constant monitoring if door is open or closed using sockets.
 
-Authenticates using facebook's oauth.
+Pub/Sub connection to MQTT.
